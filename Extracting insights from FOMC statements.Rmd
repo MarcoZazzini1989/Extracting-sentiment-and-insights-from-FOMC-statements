@@ -1,0 +1,182 @@
+---
+title: "web scraping"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+date: '2023-09-25'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rvest)
+library(tm)
+library(SnowballC)
+library(corpustools)
+library(slam)
+library(wordcloud)
+library(wesanderson)
+library(sentimentr)
+library(tidyverse)
+library(tidytext)
+library(syuzhet)
+library(ggplot2)
+
+
+```
+
+
+
+```{r }
+
+# Url links for web scraping
+lista_url <- c("https://www.federalreserve.gov/newsevents/pressreleases/monetary20230920a.htm", 
+               "https://www.federalreserve.gov/newsevents/pressreleases/monetary20230726a.htm",
+               "https://www.federalreserve.gov/newsevents/pressreleases/monetary20230614a.htm",
+               "https://www.federalreserve.gov/newsevents/pressreleases/monetary20230503a.htm")
+               
+
+
+```
+
+
+
+```{r pressure, echo=FALSE}
+
+
+# download htm pages and merge all of 4 pages 
+
+dati_siti <- list()
+
+for (url in lista_url) {
+  pagina <- read_html(url)
+  
+
+  testo <- (pagina %>% html_nodes("p") %>% html_text())[c(41,43,44,45)]
+
+  dati_siti[[url]] <- testo
+}
+
+dati_siti
+
+
+```
+
+```{r}
+
+# The ‘tm’ package (tet minig) can be used to clean up the text. First, text should be converted to ‘Corpus’, or a list of the text we #would like to use.
+corpus <- Corpus(VectorSource(dati_siti))
+corpus <- tm_map(corpus, content_transformer(tolower))  
+corpus <- tm_map(corpus, removePunctuation)             
+corpus <- tm_map(corpus, removeNumbers)                
+corpus <- tm_map(corpus, removeWords, stopwords("english"))  
+
+
+inspect(corpus)
+
+
+```
+
+```{r}
+
+# Making text document 
+
+tdm <- TermDocumentMatrix(corpus)
+
+#Term Frequencies
+
+frequenze <- row_sums(as.matrix(tdm))
+tabella_frequenze <- data.frame(parola = names(frequenze), frequenza = frequenze)
+tabella_frequenze <- tabella_frequenze[order(-tabella_frequenze$frequenza), ]
+
+
+head(tabella_frequenze,15)
+
+
+term_freq <- frequenze[order(-frequenze)]
+head(term_freq)
+
+
+```
+```{r, fig.width = 7 ,fig.height = 8}
+
+# WordCloud
+
+word.counts<-as.matrix(TermDocumentMatrix(corpus))
+word.freq<-sort(rowSums(word.counts), decreasing=TRUE)
+head(word.freq)##what are the top words?
+
+
+set.seed(32) #be sure to set the seed if you want to reproduce the same again
+
+
+wordcloud(words=names(word.freq), freq=word.freq, scale=c(4,.3),max.words = 100, 
+          random.order = TRUE, color=wes_palette("Royal1"))
+
+
+
+```
+```{r}
+# Extract textual content from each document in the corpus
+
+testi <- sapply(corpus, function(doc) as.character(doc))
+token_testo <- strsplit(testi, "\\s+") 
+
+testi
+
+
+```
+
+```{r}
+# tokenize
+tokens <- tibble(text = testi) %>% unnest_tokens(word, text)
+
+
+tokens %>%
+  inner_join(get_sentiments("bing")) %>% # pull out only sentiment words
+  count(sentiment) %>% # count the # of positive & negative words
+  spread(sentiment, n, fill = 0) %>% # made data wide rather than narrow
+  mutate(sentiment = positive - negative) # # of positive words - # of negative words
+
+
+
+
+# get words already get_sentiments("bing")
+
+(sentiment <- tokens %>%
+    inner_join(get_sentiments("bing")) %>%
+    count(word, sentiment, sort = TRUE))
+
+
+```
+```{r}
+sentiment %>%
+  group_by(sentiment) %>%
+  top_n(20) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+```
+```{r}
+vector.nrc <- get_nrc_sentiment(testi)
+df.nrc <- data.frame(t(vector.nrc))
+td_new <-  data.frame( rowSums(df.nrc))
+
+
+td_new %>% rename(count=rowSums.df.nrc.) -> td_new
+
+td_new <- cbind( "sentiment" = rownames(td_new), td_new )
+rownames(td_new) <- NULL
+td_new2 <- td_new[1:10,]
+
+quickplot(data = td_new2 , x = sentiment, fill = sentiment,
+          weight= count, geom = 'bar', ylab = "count")+ theme(legend.position = "none")
+
+
+
+```
+
